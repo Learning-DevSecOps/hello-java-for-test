@@ -3,20 +3,37 @@ name: CI Pipeline
 on:
   push:
     branches: [ '**' ]
-    tags: [ 'v*' ]
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  # Stage 1: does the code compile?
-  build:
-    name: 1. Build
+  # Stage 1: Fetch - collect the latest code
+  fetch:
+    name: 1. Fetch
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+      - name: Share the source with later stages
+        uses: actions/upload-artifact@v7
+        with:
+          name: source-code
+          path: |
+            pom.xml
+            src/
+          retention-days: 1
+          if-no-files-found: error
+
+  # Stage 2: Compile - turn code into a runnable form
+  compile:
+    name: 2. Compile
+    needs: fetch
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: source-code
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -25,13 +42,15 @@ jobs:
       - name: Compile
         run: mvn -B -ntp compile
 
-  # Stage 2: do the unit tests pass?
+  # Stage 3: Test - run the automated checks
   test:
-    name: 2. Unit Test
-    needs: build
+    name: 3. Test
+    needs: compile
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: source-code
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -43,17 +62,19 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: test-reports
+          name: test-reports-${{ github.run_number }}
           path: target/surefire-reports/
           retention-days: 14
 
-  # Stage 3: build the deployable JAR (only runs if tests passed)
+  # Stage 4: Package - assemble one installable file
   package:
-    name: 3. Package
+    name: 4. Package
     needs: test
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: source-code
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -61,52 +82,29 @@ jobs:
           cache: maven
       - name: Build JAR
         run: mvn -B -ntp package -DskipTests
-      - name: Upload JAR
+      - name: Hand the JAR to the Publish stage
         uses: actions/upload-artifact@v7
         with:
-          name: hello-world-jar
+          name: jar-staging
           path: target/hello-world.jar
+          retention-days: 1
           if-no-files-found: error
-          retention-days: 30
 
-  # Stage 4: deploy to the dev environment (not on pull requests)
-  deploy-dev:
-    name: 4. Deploy to Dev
+  # Stage 5: Publish - store the file for later use
+  publish:
+    name: 5. Publish
     needs: package
-    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
-    environment: dev
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: hello-world-jar
-      - name: Deploy (simulated) and smoke test
-        run: |
-          echo "Deploying hello-world.jar to DEV from ${{ github.ref_name }}..."
-          java -jar hello-world.jar Dev
-
-  # Stage 5: release to production (tags only, needs manual approval)
-  deploy-prod:
-    name: 5. Deploy to Production
-    needs: deploy-dev
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
-    environment: production
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
+          name: jar-staging
+      - name: Smoke test the JAR
+        run: java -jar hello-world.jar CI
+      - name: Store the JAR
+        uses: actions/upload-artifact@v7
         with:
-          name: hello-world-jar
-      - name: Deploy (simulated) and smoke test
-        run: |
-          echo "Deploying hello-world.jar to PRODUCTION..."
-          java -jar hello-world.jar Production
-      - name: Publish GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "${{ github.ref_name }}" hello-world.jar \
-            --repo "${{ github.repository }}" \
-            --title "${{ github.ref_name }}" \
-            --generate-notes
+          name: hello-world-jar-${{ github.run_number }}
+          path: hello-world.jar
+          retention-days: 30
+          if-no-files-found: error
