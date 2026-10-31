@@ -95,6 +95,9 @@ jobs:
     name: 5. Publish
     needs: package
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -108,3 +111,13 @@ jobs:
           path: hello-world.jar
           retention-days: 30
           if-no-files-found: error
+      - name: Remove temporary artifacts (keep only JAR and test reports)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for name in source-code jar-staging; do
+            for id in $(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+                          --jq ".artifacts[] | select(.name==\"$name\") | .id"); do
+              gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
+            done
+          done
