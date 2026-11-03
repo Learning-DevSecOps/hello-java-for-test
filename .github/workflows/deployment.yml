@@ -1,0 +1,75 @@
+name: Deployment
+
+on:
+  workflow_run:
+    workflows: [ "CI Pipeline" ]
+    types: [ completed ]
+    branches: [ main ]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  deploy-dev:
+    name: 1. Deploy to Dev
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-24.04
+    environment: dev
+    steps:
+      - name: Download the JAR built by CI
+        uses: actions/download-artifact@v8
+        with:
+          name: hello-world-jar-${{ github.event.workflow_run.run_number }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Deploy (simulated) and smoke test
+        run: |
+          echo "Deploying build ${{ github.event.workflow_run.run_number }} to DEV..."
+          java -jar hello-world.jar Dev
+
+  deploy-staging:
+    name: 2. Deploy to Staging
+    needs: deploy-dev
+    runs-on: ubuntu-24.04
+    environment: staging
+    steps:
+      - name: Download the JAR built by CI
+        uses: actions/download-artifact@v8
+        with:
+          name: hello-world-jar-${{ github.event.workflow_run.run_number }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Deploy (simulated) and smoke test
+        run: |
+          echo "Deploying build ${{ github.event.workflow_run.run_number }} to STAGING..."
+          java -jar hello-world.jar Staging
+
+  deploy-production:
+    name: 3. Deploy to Production
+    needs: deploy-staging
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - name: Download the JAR built by CI
+        uses: actions/download-artifact@v8
+        with:
+          name: hello-world-jar-${{ github.event.workflow_run.run_number }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Deploy (simulated) and smoke test
+        run: |
+          echo "Deploying build ${{ github.event.workflow_run.run_number }} to PRODUCTION..."
+          java -jar hello-world.jar Production
