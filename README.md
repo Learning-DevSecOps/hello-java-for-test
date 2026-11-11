@@ -1,3 +1,5 @@
+# Adding a new statement here
+
 # Hello World - Multi-Stage CI/CD Pipeline
 
 A small Java project used to demonstrate a complete CI/CD pipeline with GitHub Actions and Maven.
